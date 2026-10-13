@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TestAssess &mdash; Sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="ledger-bg">
+  <div class="auth-shell">
+    <div class="auth-card">
+      <span class="stamp">ROLL NO. ISSUED ON LOGIN</span>
+      <h1 style="margin-bottom:2px;">TestAssess</h1>
+      <p class="subtle" style="margin-bottom:18px;">Online tests, graded and tracked in one register.</p>
+
+      <div class="role-toggle">
+        <button id="btnStudent" class="active" onclick="setRole('student')">Student</button>
+        <button id="btnTeacher" onclick="setRole('teacher')">Teacher</button>
+      </div>
+
+      <div class="role-toggle" style="margin-bottom:6px;">
+        <button id="btnLogin" class="active" onclick="setMode('login')">Log in</button>
+        <button id="btnRegister" onclick="setMode('register')">Create account</button>
+      </div>
+
+      <!-- LOGIN FORM (shared for both roles) -->
+      <form id="loginForm" class="tab-panel active" onsubmit="return handleLogin(event)">
+        <label>Email</label>
+        <input type="email" id="loginEmail" required />
+        <label>Password</label>
+        <input type="password" id="loginPassword" required />
+        <button type="submit" style="width:100%; margin-top:18px;">Log in</button>
+        <div id="loginMsg"></div>
+      </form>
+
+      <!-- STUDENT REGISTER FORM -->
+      <form id="registerStudentForm" class="tab-panel" onsubmit="return handleRegisterStudent(event)">
+        <label>Full name</label>
+        <input type="text" id="rsName" required />
+        <label>Email</label>
+        <input type="email" id="rsEmail" required />
+        <label>Password</label>
+        <input type="password" id="rsPassword" required minlength="6" />
+        <div class="form-row">
+          <div>
+            <label>Class join code</label>
+            <input type="text" id="rsJoinCode" placeholder="e.g. 4F2A9C" required />
+          </div>
+          <div>
+            <label>Roll number (optional)</label>
+            <input type="text" id="rsRoll" />
+          </div>
+        </div>
+        <p class="subtle" style="margin-top:6px;">Ask your teacher for the class join code.</p>
+        <button type="submit" style="width:100%; margin-top:14px;">Create student account</button>
+        <div id="registerStudentMsg"></div>
+      </form>
+
+      <!-- TEACHER REGISTER FORM -->
+      <form id="registerTeacherForm" class="tab-panel" onsubmit="return handleRegisterTeacher(event)">
+        <label>Full name</label>
+        <input type="text" id="rtName" required />
+        <label>Email</label>
+        <input type="email" id="rtEmail" required />
+        <label>Password</label>
+        <input type="password" id="rtPassword" required minlength="6" />
+        <button type="submit" style="width:100%; margin-top:14px;">Create teacher account</button>
+        <div id="registerTeacherMsg"></div>
+      </form>
+
+      <div class="switch-line" id="switchLine"></div>
+    </div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script>
+  let currentRole = "student";
+  let currentMode = "login";
+
+  function setRole(role) {
+    currentRole = role;
+    document.getElementById("btnStudent").classList.toggle("active", role === "student");
+    document.getElementById("btnTeacher").classList.toggle("active", role === "teacher");
+    render();
+  }
+
+  function setMode(mode) {
+    currentMode = mode;
+    document.getElementById("btnLogin").classList.toggle("active", mode === "login");
+    document.getElementById("btnRegister").classList.toggle("active", mode === "register");
+    render();
+  }
+
+  function render() {
+    document.getElementById("loginForm").classList.toggle("active", currentMode === "login");
+    document.getElementById("registerStudentForm").classList.toggle("active", currentMode === "register" && currentRole === "student");
+    document.getElementById("registerTeacherForm").classList.toggle("active", currentMode === "register" && currentRole === "teacher");
+  }
+
+  function goToDashboard(user) {
+    window.location.href = user.role === "teacher" ? "/teacher-dashboard.html" : "/student-dashboard.html";
+  }
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    const msg = document.getElementById("loginMsg");
+    msg.innerHTML = "";
+    try {
+      const email = document.getElementById("loginEmail").value;
+      const password = document.getElementById("loginPassword").value;
+      const data = await API.post("/auth/login", { email, password });
+      API.setSession(data.token, data.user);
+      goToDashboard(data.user);
+    } catch (err) {
+      msg.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+    return false;
+  }
+
+  async function handleRegisterStudent(e) {
+    e.preventDefault();
+    const msg = document.getElementById("registerStudentMsg");
+    msg.innerHTML = "";
+    try {
+      const payload = {
+        name: document.getElementById("rsName").value,
+        email: document.getElementById("rsEmail").value,
+        password: document.getElementById("rsPassword").value,
+        joinCode: document.getElementById("rsJoinCode").value,
+        rollNumber: document.getElementById("rsRoll").value
+      };
+      const data = await API.post("/auth/register/student", payload);
+      API.setSession(data.token, data.user);
+      goToDashboard(data.user);
+    } catch (err) {
+      msg.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+    return false;
+  }
+
+  async function handleRegisterTeacher(e) {
+    e.preventDefault();
+    const msg = document.getElementById("registerTeacherMsg");
+    msg.innerHTML = "";
+    try {
+      const payload = {
+        name: document.getElementById("rtName").value,
+        email: document.getElementById("rtEmail").value,
+        password: document.getElementById("rtPassword").value
+      };
+      const data = await API.post("/auth/register/teacher", payload);
+      API.setSession(data.token, data.user);
+      goToDashboard(data.user);
+    } catch (err) {
+      msg.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+    return false;
+  }
+
+  // If already logged in, skip straight to dashboard
+  (function init() {
+    const user = API.getUser();
+    if (user && API.getToken()) goToDashboard(user);
+    render();
+  })();
+</script>
+</body>
+</html>

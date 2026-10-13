@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Student Dashboard &mdash; TestAssess</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="ledger-bg">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="wrap">
+    <span class="eyebrow">Student portal</span>
+    <h1>Your tests</h1>
+    <p class="subtle">Tests your teacher has published for your class appear here.</p>
+    <div style="margin: 10px 0 20px;"><a class="btn secondary small" href="/my-results.html">View my results &rarr;</a></div>
+
+    <div id="area"></div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script>
+  const user = requireRole("student");
+  if (user) { renderTopbar(user); loadTests(); }
+
+  async function loadTests() {
+    const area = document.getElementById("area");
+    try {
+      const tests = await API.get("/student/tests");
+      if (!tests.length) {
+        area.innerHTML = `<div class="empty-state">No tests available right now. Check back once your teacher publishes one.</div>`;
+        return;
+      }
+      area.innerHTML = `<div class="grid-cards">${tests.map(cardFor).join("")}</div>`;
+    } catch (err) {
+      area.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function cardFor(t) {
+    let statusBadge, action;
+    if (t.attempted) {
+      statusBadge = t.status === "graded" ? `<span class="badge graded">Graded</span>` : `<span class="badge pending">Submitted &middot; awaiting grading</span>`;
+      action = `<a class="btn secondary small" href="/my-results.html">View result</a>`;
+    } else {
+      statusBadge = `<span class="badge published">Not attempted</span>`;
+      action = `<a class="btn small" href="/take-test.html?testId=${t._id}">Start test</a>`;
+    }
+    const deadline = t.availableUntil ? `&middot; closes ${new Date(t.availableUntil).toLocaleString()}` : "";
+    return `
+      <div class="item-card">
+        <h3>${escapeHtml(t.title)}</h3>
+        <div class="meta">${escapeHtml(t.subject)} &middot; ${t.questionCount} question${t.questionCount === 1 ? '' : 's'} &middot; ${t.duration} min &middot; ${t.totalMarks} marks ${deadline}</div>
+        ${statusBadge}
+        <div class="actions">${action}</div>
+      </div>`;
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Create Test &mdash; TestAssess</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="ledger-bg">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="wrap">
+    <a href="/teacher-dashboard.html" class="subtle">&larr; Back to dashboard</a>
+    <span class="eyebrow">Admin module</span>
+    <h1>Create a test</h1>
+
+    <div class="sheet">
+      <h2>Details</h2>
+      <div class="form-row">
+        <div>
+          <label>Title</label>
+          <input type="text" id="title" placeholder="e.g. Unit 3 Assessment" required />
+        </div>
+        <div>
+          <label>Subject</label>
+          <input type="text" id="subject" placeholder="e.g. Mathematics" required />
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Class</label>
+          <select id="classId" required></select>
+        </div>
+        <div>
+          <label>Duration (minutes)</label>
+          <input type="number" id="duration" min="1" value="30" required />
+        </div>
+      </div>
+      <label>Instructions (optional)</label>
+      <textarea id="instructions" placeholder="e.g. Answer all questions. No negative marking."></textarea>
+      <div class="form-row">
+        <div>
+          <label>Available from</label>
+          <input type="datetime-local" id="availableFrom" />
+        </div>
+        <div>
+          <label>Available until (optional)</label>
+          <input type="datetime-local" id="availableUntil" />
+        </div>
+      </div>
+    </div>
+
+    <div class="sheet">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>Questions <span class="subtle" id="totalMarksLabel">(0 marks)</span></h2>
+      </div>
+      <div id="questionsArea"></div>
+      <div style="display:flex; gap:8px; margin-top:16px; flex-wrap:wrap;">
+        <button type="button" class="secondary" onclick="addQuestion('mcq')">+ MCQ</button>
+        <button type="button" class="secondary" onclick="addQuestion('short')">+ Short answer</button>
+        <button type="button" class="secondary" onclick="addQuestion('essay')">+ Essay</button>
+      </div>
+    </div>
+
+    <button onclick="saveTest()" style="margin-top:4px;">Save test as draft</button>
+    <span class="subtle" style="margin-left:10px;">You can publish it from the dashboard once it's ready.</span>
+    <div id="saveMsg"></div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script>
+  const user = requireRole("teacher");
+  if (user) { renderTopbar(user); loadClasses(); }
+
+  let questionCount = 0;
+  const params = new URLSearchParams(window.location.search);
+
+  async function loadClasses() {
+    try {
+      const classes = await API.get("/teacher/classes");
+      const select = document.getElementById("classId");
+      if (!classes.length) {
+        select.innerHTML = `<option value="">No classes yet — create one first</option>`;
+        return;
+      }
+      select.innerHTML = classes.map(c => `<option value="${c._id}">${escapeHtml(c.name)} ${escapeHtml(c.section)}</option>`).join("");
+      const preselect = params.get("classId");
+      if (preselect) select.value = preselect;
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  function addQuestion(type) {
+    questionCount++;
+    const id = "q" + questionCount;
+    const area = document.getElementById("questionsArea");
+    const block = document.createElement("div");
+    block.className = "question-block";
+    block.id = id;
+    block.dataset.type = type;
+
+    const typeLabel = type === "mcq" ? "Multiple choice" : type === "short" ? "Short answer" : "Essay";
+    let optionsHtml = "";
+    if (type === "mcq") {
+      optionsHtml = `
+        <div id="${id}-options">
+          ${[0,1,2,3].map(i => `
+            <div class="option-row">
+              <input type="radio" name="${id}-correct" value="${i}" title="Mark as correct answer" />
+              <input type="text" placeholder="Option ${i + 1}" class="${id}-option" />
+            </div>`).join("")}
+        </div>
+        <p class="subtle" style="margin-top:6px;">Select the radio button next to the correct option.</p>`;
+    }
+
+    block.innerHTML = `
+      <span class="q-number">Q${questionCount} &middot; ${typeLabel}</span>
+      <button type="button" class="danger small" style="position:absolute; top:10px; right:10px;" onclick="removeQuestion('${id}')">Remove</button>
+      <label>Question text</label>
+      <textarea class="${id}-text" placeholder="Type the question here&hellip;"></textarea>
+      ${optionsHtml}
+      <div class="form-row" style="max-width:160px;">
+        <div>
+          <label>Marks</label>
+          <input type="number" class="${id}-marks" min="1" value="1" onchange="updateTotalMarks()" />
+        </div>
+      </div>
+    `;
+    area.appendChild(block);
+    updateTotalMarks();
+  }
+
+  function removeQuestion(id) {
+    document.getElementById(id).remove();
+    updateTotalMarks();
+  }
+
+  function updateTotalMarks() {
+    let total = 0;
+    document.querySelectorAll("[class*='-marks']").forEach(el => { total += Number(el.value) || 0; });
+    document.getElementById("totalMarksLabel").textContent = `(${total} marks)`;
+  }
+
+  function collectQuestions() {
+    const blocks = document.querySelectorAll(".question-block");
+    const questions = [];
+    for (const block of blocks) {
+      const id = block.id;
+      const type = block.dataset.type;
+      const questionText = block.querySelector(`.${id}-text`).value.trim();
+      const marks = Number(block.querySelector(`.${id}-marks`).value) || 1;
+      if (!questionText) throw new Error(`Question ${id.replace('q','')} is missing its text.`);
+
+      if (type === "mcq") {
+        const optionEls = block.querySelectorAll(`.${id}-option`);
+        const options = Array.from(optionEls).map(o => o.value.trim()).filter(Boolean);
+        const checked = block.querySelector(`input[name="${id}-correct"]:checked`);
+        if (options.length < 2) throw new Error(`MCQ question needs at least 2 options.`);
+        if (!checked) throw new Error(`Select the correct answer for the MCQ question.`);
+        const correctIndex = Number(checked.value);
+        const correctAnswer = Array.from(optionEls)[correctIndex].value.trim();
+        questions.push({ type, questionText, options, correctAnswer, marks });
+      } else {
+        questions.push({ type, questionText, marks });
+      }
+    }
+    if (!questions.length) throw new Error("Add at least one question.");
+    return questions;
+  }
+
+  async function saveTest() {
+    const msg = document.getElementById("saveMsg");
+    msg.innerHTML = "";
+    try {
+      const questions = collectQuestions();
+      const payload = {
+        title: document.getElementById("title").value.trim(),
+        subject: document.getElementById("subject").value.trim(),
+        classId: document.getElementById("classId").value,
+        duration: Number(document.getElementById("duration").value),
+        instructions: document.getElementById("instructions").value.trim(),
+        availableFrom: document.getElementById("availableFrom").value || undefined,
+        availableUntil: document.getElementById("availableUntil").value || undefined,
+        questions
+      };
+      if (!payload.title || !payload.subject || !payload.classId) {
+        throw new Error("Please fill in title, subject and class.");
+      }
+      await API.post("/teacher/tests", payload);
+      msg.innerHTML = `<div class="success-box">Test saved. Redirecting to dashboard&hellip;</div>`;
+      setTimeout(() => window.location.href = "/teacher-dashboard.html", 900);
+    } catch (err) {
+      msg.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  // start with one MCQ question by default
+  addQuestion("mcq");
+</script>
+</body>
+</html>

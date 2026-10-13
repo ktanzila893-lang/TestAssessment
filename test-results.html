@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Test Results &mdash; TestAssess</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="ledger-bg">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="wrap">
+    <a href="/teacher-dashboard.html" class="subtle">&larr; Back to dashboard</a>
+    <span class="eyebrow">Admin module</span>
+    <h1 id="testTitle">Results</h1>
+    <p class="subtle" id="testMeta"></p>
+
+    <div class="sheet">
+      <table>
+        <thead>
+          <tr><th>Student</th><th>Status</th><th>Score</th><th>Grade</th><th></th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="emptyState"></div>
+    </div>
+  </div>
+
+  <!-- Grading modal (simple inline panel) -->
+  <div id="gradePanel" class="sheet" style="display:none;">
+    <h2>Grade submission</h2>
+    <div id="gradeContent"></div>
+    <div style="margin-top:14px; display:flex; gap:8px;">
+      <button onclick="saveGrades()">Save grades</button>
+      <button class="secondary" onclick="closeGradePanel()">Close</button>
+    </div>
+    <div id="gradeMsg"></div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script>
+  const user = requireRole("teacher");
+  const params = new URLSearchParams(window.location.search);
+  const testId = params.get("testId");
+  let currentSubmission = null;
+
+  if (user) { renderTopbar(user); loadResults(); }
+
+  async function loadResults() {
+    try {
+      const data = await API.get(`/teacher/tests/${testId}/submissions`);
+      document.getElementById("testTitle").textContent = data.test.title;
+      document.getElementById("testMeta").textContent = `Total marks: ${data.test.totalMarks}`;
+
+      const rows = document.getElementById("rows");
+      if (!data.submissions.length) {
+        document.getElementById("emptyState").innerHTML = `<div class="empty-state">No submissions yet.</div>`;
+        rows.innerHTML = "";
+        return;
+      }
+      rows.innerHTML = data.submissions.map(s => `
+        <tr>
+          <td>${escapeHtml(s.student.name)}<br><span class="subtle">${escapeHtml(s.student.email)}</span></td>
+          <td><span class="badge ${s.status === 'graded' ? 'graded' : 'pending'}">${s.status === 'graded' ? 'Graded' : 'Needs review'}</span></td>
+          <td>${s.status === 'graded' ? `${s.totalScore} / ${s.maxScore}` : '&mdash;'}</td>
+          <td>${s.grade || '&mdash;'}</td>
+          <td><button class="small secondary" onclick="openSubmission('${s._id}')">${s.status === 'graded' ? 'View' : 'Grade'}</button></td>
+        </tr>
+      `).join("");
+    } catch (err) {
+      document.getElementById("emptyState").innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function openSubmission(id) {
+    try {
+      const sub = await API.get(`/teacher/submissions/${id}`);
+      currentSubmission = sub;
+      const panel = document.getElementById("gradePanel");
+      const content = document.getElementById("gradeContent");
+
+      const questionMap = {};
+      sub.test.questions.forEach(q => questionMap[q._id] = q);
+
+      content.innerHTML = `
+        <p class="subtle">${escapeHtml(sub.student.name)} &middot; ${escapeHtml(sub.student.email)}</p>
+        ${sub.answers.map(a => {
+          const q = questionMap[a.questionId] || {};
+          const isSubjective = a.type !== "mcq";
+          return `
+            <div class="question-block">
+              <span class="q-number">${a.type.toUpperCase()} &middot; ${a.maxMarks} mark${a.maxMarks === 1 ? '' : 's'}</span>
+              <p><strong>${escapeHtml(q.questionText || '')}</strong></p>
+              <p class="subtle">Student's answer:</p>
+              <p style="white-space:pre-wrap; background:#fff; border:1px solid var(--rule); border-radius:3px; padding:10px;">${escapeHtml(a.answerText) || '<em>No answer given</em>'}</p>
+              ${a.type === 'mcq'
+                ? `<p class="subtle">Correct answer: <strong>${escapeHtml(q.correctAnswer || '')}</strong> &middot; Auto-graded: ${a.marksAwarded} / ${a.maxMarks}</p>`
+                : `<label>Marks awarded (out of ${a.maxMarks})</label>
+                   <input type="number" min="0" max="${a.maxMarks}" value="${a.marksAwarded ?? ''}" class="grade-input" data-qid="${a.questionId}" />`
+              }
+            </div>`;
+        }).join("")}
+      `;
+      panel.style.display = "block";
+      panel.scrollIntoView({ behavior: "smooth" });
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  function closeGradePanel() {
+    document.getElementById("gradePanel").style.display = "none";
+    currentSubmission = null;
+  }
+
+  async function saveGrades() {
+    const msg = document.getElementById("gradeMsg");
+    msg.innerHTML = "";
+    try {
+      const inputs = document.querySelectorAll(".grade-input");
+      const grades = Array.from(inputs).map(inp => ({
+        questionId: inp.dataset.qid,
+        marksAwarded: Number(inp.value) || 0
+      }));
+      if (!grades.length) {
+        msg.innerHTML = `<div class="subtle">No subjective questions to grade — MCQs are graded automatically.</div>`;
+      } else {
+        await API.put(`/teacher/submissions/${currentSubmission._id}/grade`, { grades });
+        msg.innerHTML = `<div class="success-box">Grades saved.</div>`;
+      }
+      loadResults();
+      setTimeout(closeGradePanel, 800);
+    } catch (err) {
+      msg.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+  }
+</script>
+</body>
+</html>

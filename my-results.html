@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Results &mdash; TestAssess</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="ledger-bg">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="wrap">
+    <a href="/student-dashboard.html" class="subtle">&larr; Back to tests</a>
+    <span class="eyebrow">Student portal</span>
+    <h1>My results</h1>
+
+    <div id="area"></div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script>
+  const user = requireRole("student");
+  if (user) { renderTopbar(user); loadResults(); }
+
+  async function loadResults() {
+    const area = document.getElementById("area");
+    try {
+      const results = await API.get("/student/results");
+      if (!results.length) {
+        area.innerHTML = `<div class="empty-state">You haven't submitted any tests yet.</div>`;
+        return;
+      }
+      area.innerHTML = results.map(r => `
+        <div class="sheet" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+          <div>
+            <h2>${escapeHtml(r.test.title)}</h2>
+            <p class="subtle">${escapeHtml(r.test.subject)} &middot; submitted ${new Date(r.submittedAt).toLocaleString()}${r.autoSubmitted ? ' &middot; auto-submitted (time expired)' : ''}</p>
+            ${r.status === 'graded'
+              ? `<p>Score: <strong>${r.totalScore} / ${r.maxScore}</strong></p>`
+              : `<span class="badge pending">Awaiting grading — some answers need teacher review</span>`}
+          </div>
+          ${r.status === 'graded' ? `<div class="grade-stamp">${escapeHtml(r.grade)}</div>` : ''}
+        </div>
+      `).join("");
+    } catch (err) {
+      area.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+  }
+</script>
+</body>
+</html>

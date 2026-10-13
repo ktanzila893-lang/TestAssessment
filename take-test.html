@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Take Test &mdash; TestAssess</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="timer-bar">
+    <div id="testTitleBar" style="font-family: var(--font-display); font-size:16px;">Loading test&hellip;</div>
+    <div class="timer-clock" id="clock">--:--</div>
+  </div>
+
+  <div class="wrap">
+    <div class="sheet" id="instructionsSheet" style="display:none;">
+      <h2>Instructions</h2>
+      <p id="instructionsText" class="subtle"></p>
+      <p class="subtle">Once you start the timer, it keeps running even if you refresh the page. Submit before time runs out — the test auto-submits at zero.</p>
+    </div>
+
+    <form id="testForm" onsubmit="return submitTest(event)"></form>
+
+    <div id="submitArea" style="display:none; margin-top:10px;">
+      <button type="button" onclick="submitTest()">Submit test</button>
+      <span class="subtle" style="margin-left:10px;">You can only submit once — double-check your answers.</span>
+      <div id="submitMsg"></div>
+    </div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script>
+  const user = requireRole("student");
+  const params = new URLSearchParams(window.location.search);
+  const testId = params.get("testId");
+  let test = null;
+  let timerInterval = null;
+  let submitted = false;
+
+  if (user) init();
+
+  async function init() {
+    try {
+      test = await API.get(`/student/tests/${testId}`);
+    } catch (err) {
+      document.querySelector(".wrap").innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+      return;
+    }
+
+    document.getElementById("testTitleBar").textContent = `${test.title} — ${test.subject}`;
+    if (test.instructions) {
+      document.getElementById("instructionsSheet").style.display = "block";
+      document.getElementById("instructionsText").textContent = test.instructions;
+    }
+    renderQuestions();
+    document.getElementById("submitArea").style.display = "block";
+    startTimer();
+  }
+
+  function renderQuestions() {
+    const form = document.getElementById("testForm");
+    form.innerHTML = test.questions.map((q, idx) => {
+      if (q.type === "mcq") {
+        return `
+          <div class="sheet">
+            <span class="eyebrow">Question ${idx + 1} &middot; ${q.marks} mark${q.marks === 1 ? '' : 's'}</span>
+            <p><strong>${escapeHtml(q.questionText)}</strong></p>
+            <div class="omr-group" data-qid="${q._id}">
+              ${q.options.map((opt, i) => `
+                <label class="omr-option" onclick="selectOption('${q._id}', ${i})">
+                  <input type="radio" name="opt-${q._id}" value="${escapeHtml(opt)}" />
+                  <span class="omr-bubble"></span>
+                  <span>${escapeHtml(opt)}</span>
+                </label>
+              `).join("")}
+            </div>
+          </div>`;
+      }
+      return `
+        <div class="sheet">
+          <span class="eyebrow">Question ${idx + 1} &middot; ${q.marks} mark${q.marks === 1 ? '' : 's'} &middot; ${q.type === 'essay' ? 'Essay' : 'Short answer'}</span>
+          <p><strong>${escapeHtml(q.questionText)}</strong></p>
+          <textarea id="ans-${q._id}" style="min-height:${q.type === 'essay' ? '160px' : '70px'};" placeholder="Type your answer&hellip;"></textarea>
+        </div>`;
+    }).join("");
+  }
+
+  function selectOption(qid, index) {
+    const group = document.querySelector(`.omr-group[data-qid="${qid}"]`);
+    group.querySelectorAll(".omr-option").forEach((el, i) => {
+      el.classList.toggle("selected", i === index);
+      el.querySelector("input").checked = i === index;
+    });
+  }
+
+  function startTimer() {
+    const key = `test_start_${testId}`;
+    let startedAt = localStorage.getItem(key);
+    if (!startedAt) {
+      startedAt = Date.now();
+      localStorage.setItem(key, startedAt);
+    }
+    const durationMs = test.duration * 60 * 1000;
+    const endAt = Number(startedAt) + durationMs;
+
+    timerInterval = setInterval(() => {
+      const remaining = endAt - Date.now();
+      const clock = document.getElementById("clock");
+      if (remaining <= 0) {
+        clock.textContent = "00:00";
+        clearInterval(timerInterval);
+        submitTest(null, true);
+        return;
+      }
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      clock.textContent = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+      clock.classList.toggle("low", remaining < 60000);
+    }, 250);
+  }
+
+  function collectAnswers() {
+    return test.questions.map(q => {
+      if (q.type === "mcq") {
+        const checked = document.querySelector(`input[name="opt-${q._id}"]:checked`);
+        return { questionId: q._id, answerText: checked ? checked.value : "" };
+      }
+      const el = document.getElementById(`ans-${q._id}`);
+      return { questionId: q._id, answerText: el ? el.value : "" };
+    });
+  }
+
+  async function submitTest(e, autoSubmitted) {
+    if (e) e.preventDefault();
+    if (submitted) return false;
+    submitted = true;
+    clearInterval(timerInterval);
+
+    const msg = document.getElementById("submitMsg");
+    const key = `test_start_${testId}`;
+    const startedAt = Number(localStorage.getItem(key)) || Date.now();
+    const timeTakenSeconds = Math.round((Date.now() - startedAt) / 1000);
+
+    try {
+      await API.post(`/student/tests/${testId}/submit`, {
+        answers: collectAnswers(),
+        timeTakenSeconds,
+        autoSubmitted: !!autoSubmitted
+      });
+      localStorage.removeItem(key);
+      const note = autoSubmitted ? " Time ran out, so it was submitted automatically." : "";
+      document.querySelector(".wrap").innerHTML = `<div class="sheet"><h2>Test submitted</h2><p class="subtle">Your answers have been recorded.${note} MCQs are graded instantly; short and essay answers will be graded by your teacher.</p><a class="btn" href="/student-dashboard.html">Back to dashboard</a></div>`;
+    } catch (err) {
+      submitted = false;
+      if (msg) msg.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+      else alert(err.message);
+    }
+    return false;
+  }
+
+  window.addEventListener("beforeunload", (e) => {
+    if (!submitted) { e.preventDefault(); e.returnValue = ""; }
+  });
+</script>
+</body>
+</html>

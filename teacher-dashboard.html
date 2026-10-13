@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Teacher Dashboard &mdash; TestAssess</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="ledger-bg">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="wrap">
+    <span class="eyebrow">Admin module</span>
+    <h1>Your classes</h1>
+    <p class="subtle">Create classes, share join codes with students, and manage tests for each class.</p>
+
+    <div class="sheet">
+      <h2>New class</h2>
+      <form onsubmit="return createClass(event)">
+        <div class="form-row">
+          <div>
+            <label>Class name</label>
+            <input type="text" id="className" placeholder="e.g. Grade 10 Science" required />
+          </div>
+          <div>
+            <label>Section</label>
+            <input type="text" id="classSection" placeholder="e.g. A" />
+          </div>
+        </div>
+        <button type="submit" style="margin-top:14px;">Create class</button>
+        <div id="classMsg"></div>
+      </form>
+    </div>
+
+    <div id="classesArea"></div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script>
+  const user = requireRole("teacher");
+  if (user) { renderTopbar(user); loadClasses(); }
+
+  async function createClass(e) {
+    e.preventDefault();
+    const msg = document.getElementById("classMsg");
+    msg.innerHTML = "";
+    try {
+      await API.post("/teacher/classes", {
+        name: document.getElementById("className").value,
+        section: document.getElementById("classSection").value
+      });
+      document.getElementById("className").value = "";
+      document.getElementById("classSection").value = "";
+      msg.innerHTML = `<div class="success-box">Class created.</div>`;
+      loadClasses();
+    } catch (err) {
+      msg.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+    return false;
+  }
+
+  async function loadClasses() {
+    const area = document.getElementById("classesArea");
+    area.innerHTML = `<p class="subtle">Loading&hellip;</p>`;
+    try {
+      const classes = await API.get("/teacher/classes");
+      if (!classes.length) {
+        area.innerHTML = `<div class="empty-state">No classes yet. Create one above to get started.</div>`;
+        return;
+      }
+      area.innerHTML = classes.map(c => `
+        <div class="sheet">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px;">
+            <div>
+              <h2>${escapeHtml(c.name)} &middot; ${escapeHtml(c.section)}</h2>
+              <p class="subtle">Join code: <span style="font-family:var(--font-mono); color:var(--red); letter-spacing:1px;">${escapeHtml(c.joinCode)}</span> &middot; ${c.studentCount} student${c.studentCount === 1 ? '' : 's'}</p>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <a class="btn secondary small" href="/create-test.html?classId=${c._id}">+ New test</a>
+              <a class="btn secondary small" href="/class-results.html?classId=${c._id}&name=${encodeURIComponent(c.name + ' ' + c.section)}">Class results</a>
+            </div>
+          </div>
+        </div>
+      `).join("");
+      loadTestsForClasses(classes);
+    } catch (err) {
+      area.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function loadTestsForClasses() {
+    try {
+      const tests = await API.get("/teacher/tests");
+      if (!tests.length) return;
+      const grouped = {};
+      tests.forEach(t => {
+        const key = t.classId ? t.classId._id : "unknown";
+        grouped[key] = grouped[key] || [];
+        grouped[key].push(t);
+      });
+      const area = document.getElementById("classesArea");
+      area.insertAdjacentHTML("beforeend", `<h2 style="margin-top:26px;">All tests</h2>`);
+      area.insertAdjacentHTML("beforeend", `<div class="grid-cards">${tests.map(testCard).join("")}</div>`);
+    } catch (err) { /* silent - classes already shown */ }
+  }
+
+  function testCard(t) {
+    const statusBadge = t.isPublished ? `<span class="badge published">Published</span>` : `<span class="badge draft">Draft</span>`;
+    return `
+      <div class="item-card">
+        <h3>${escapeHtml(t.title)}</h3>
+        <div class="meta">${escapeHtml(t.subject)} &middot; ${t.duration} min &middot; ${t.totalMarks} marks ${t.classId ? '&middot; ' + escapeHtml(t.classId.name) : ''}</div>
+        ${statusBadge}
+        <div class="actions">
+          <a class="btn secondary small" href="/test-results.html?testId=${t._id}">Results</a>
+          <button class="small ${t.isPublished ? 'danger' : ''}" onclick="togglePublish('${t._id}')">${t.isPublished ? 'Unpublish' : 'Publish'}</button>
+          ${!t.isPublished ? `<button class="danger small" onclick="deleteTest('${t._id}')">Delete</button>` : ''}
+        </div>
+      </div>`;
+  }
+
+  async function togglePublish(id) {
+    try { await API.put(`/teacher/tests/${id}/publish`); loadClasses(); }
+    catch (err) { alert(err.message); }
+  }
+
+  async function deleteTest(id) {
+    if (!confirm("Delete this test? This cannot be undone.")) return;
+    try { await API.del(`/teacher/tests/${id}`); loadClasses(); }
+    catch (err) { alert(err.message); }
+  }
+</script>
+</body>
+</html>

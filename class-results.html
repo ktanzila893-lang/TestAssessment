@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Class Results &mdash; TestAssess</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="ledger-bg">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="wrap">
+    <a href="/teacher-dashboard.html" class="subtle">&larr; Back to dashboard</a>
+    <span class="eyebrow">Admin module</span>
+    <h1 id="className">Class results</h1>
+
+    <div id="area"></div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script>
+  const user = requireRole("teacher");
+  const params = new URLSearchParams(window.location.search);
+  const classId = params.get("classId");
+
+  if (user) {
+    renderTopbar(user);
+    document.getElementById("className").textContent = params.get("name") || "Class results";
+    loadAnalytics();
+  }
+
+  async function loadAnalytics() {
+    const area = document.getElementById("area");
+    try {
+      const data = await API.get(`/teacher/classes/${classId}/analytics`);
+      if (!data.tests.length) {
+        area.innerHTML = `<div class="empty-state">No tests created for this class yet.</div>`;
+        return;
+      }
+      area.innerHTML = data.tests.map(t => `
+        <div class="sheet">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div>
+              <h2>${escapeHtml(t.title)}</h2>
+              <p class="subtle">${t.attempts} graded attempt${t.attempts === 1 ? '' : 's'} &middot; average score ${t.averageScore} / ${t.totalMarks}</p>
+            </div>
+            <a class="btn secondary small" href="/test-results.html?testId=${t.testId}">View submissions</a>
+          </div>
+          ${t.attempts ? `
+            <div class="progress-track"><div class="progress-fill" style="width:${Math.min(100, (t.averageScore / t.totalMarks) * 100)}%;"></div></div>
+            <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+              ${Object.entries(t.gradeDistribution).map(([grade, count]) => `<span class="badge graded">${grade}: ${count}</span>`).join("")}
+            </div>
+          ` : `<p class="subtle">No graded submissions yet.</p>`}
+        </div>
+      `).join("");
+    } catch (err) {
+      area.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    }
+  }
+</script>
+</body>
+</html>
